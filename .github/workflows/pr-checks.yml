@@ -24,6 +24,8 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: LAB-MARKER-P6 this step exists only in the pull request copy of the workflow
+        run: echo LAB-MARKER-P6-RAN
       # Full history: lock-guard diffs from the merge base of main and the head, which a
       # depth-one clone cannot find when the branch started from an older main commit.
       - uses: actions/checkout@v4
