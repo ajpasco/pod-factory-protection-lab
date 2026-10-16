@@ -7,7 +7,6 @@ import { git } from '../records/git.js';
 import type { RecordSet } from '../records/store.js';
 import { writeRecord } from '../records/write.js';
 import { pullRequestOf, relayRecord, reliedOn, revocationTarget } from '../revocation.js';
-import { relyingPulls, wideReliance } from '../spike-reliance.js';
 
 /**
  * The revocation relay, run by records-validate in Actions (TECH-SPEC section 6). For every
@@ -31,9 +30,7 @@ export function relay(io: CommandIO, set: RecordSet, runId: number, runUrl: stri
       const target = revocationTarget(set, s.record.revocation.revokes);
       if (target?.kind !== 'record') return [];
       const pr = pullRequestOf(target.stored.record);
-      // Spike: a record that names no pull request may still be relied on by many.
-      if (pr === null && wideReliance(target.stored.record) === null) return [];
-      return [{ revocation: s.record, target: target.stored.record, pr }];
+      return pr === null ? [] : [{ revocation: s.record, target: target.stored.record, pr }];
     });
   if (candidates.length === 0) {
     io.out(
@@ -48,67 +45,60 @@ export function relay(io: CommandIO, set: RecordSet, runId: number, runUrl: stri
   }
 
   let failures = 0;
-  for (const { revocation, target, pr: named } of candidates) {
-    const relying =
-      named === null
-        ? relyingPulls(io, target, open).map((r) => ({ pr: r.pull.number, headSha: r.pull.headSha, tree: r.tree, why: r.why }))
-        : open
-            .filter((p) => p.number === named)
-            .flatMap((pull) => {
-              fetchPullRequest(io.cwd, named, io.remote);
-              git(io.cwd, ['fetch', '--quiet', '--no-tags', io.remote, pull.headSha], { allowFail: true });
-              const tree = treeOf(io.cwd, pull.headSha);
-              return reliedOn(target, named, tree) ? [{ pr: named, headSha: pull.headSha, tree, why: 'named by the record' }] : [];
-            });
-    for (const { pr, headSha, tree, why } of relying) {
-      if (relayRecord(set, revocation, pr, tree) !== undefined) {
-        io.out(
-          `Relay: pull request ${pr} at ${short(headSha)} is already blocked for revocation ${revocation.recordId}.`,
-        );
-        continue;
-      }
-      const posted = gh(io.cwd, io.ctx, [
-        'api',
-        '-X',
-        'POST',
-        'repos/{owner}/{repo}/check-runs',
-        '-f',
-        'name=gate-check',
-        '-f',
-        `head_sha=${headSha}`,
-        '-f',
-        'status=completed',
-        '-f',
-        'conclusion=failure',
-        '-f',
-        'output[title]=approval revoked',
-        '-f',
-        `output[summary]=Revocation ${revocation.recordId} revoked ${target.recordId}, which this pull request relied on (${why}). Reason: ${revocation.revocation.reason}`,
-      ]);
-      if (!posted.ok) {
-        io.out(`Relay could not block pull request ${pr}: ${posted.reason}.`);
-        failures++;
-        continue;
-      }
-      const record: CheckResultRecord = {
-        ...recordBase(who.actor),
-        recordType: 'check-result',
-        binds: { tree, files: {} },
-        outcome: 'fail',
-        refs: [revocation.recordId],
-        checkResult: {
-          check: 'gate-check',
-          pullRequest: pr,
-          runId,
-          runUrl,
-          bundleManifestSha256: null,
-        },
-      };
-      const landed = writeRecord(io.cwd, record, `relay-pr-${pr}`, { remote: io.remote });
+  for (const { revocation, target, pr } of candidates) {
+    const pull = open.find((p) => p.number === pr);
+    if (pull === undefined) continue;
+    fetchPullRequest(io.cwd, pr, io.remote);
+    git(io.cwd, ['fetch', '--quiet', '--no-tags', io.remote, pull.headSha], { allowFail: true });
+    const tree = treeOf(io.cwd, pull.headSha);
+    if (!reliedOn(target, pr, tree)) continue;
+    if (relayRecord(set, revocation, pr, tree) !== undefined) {
       io.out(
-        `Relay: posted a failing gate-check on pull request ${pr} at ${short(headSha)} for revocation ${revocation.recordId} (${why}); recorded as ${landed.path}.`,
+        `Relay: pull request ${pr} at ${short(pull.headSha)} is already blocked for revocation ${revocation.recordId}.`,
       );
+      continue;
     }
+    const posted = gh(io.cwd, io.ctx, [
+      'api',
+      '-X',
+      'POST',
+      'repos/{owner}/{repo}/check-runs',
+      '-f',
+      'name=gate-check',
+      '-f',
+      `head_sha=${pull.headSha}`,
+      '-f',
+      'status=completed',
+      '-f',
+      'conclusion=failure',
+      '-f',
+      'output[title]=approval revoked',
+      '-f',
+      `output[summary]=Revocation ${revocation.recordId} revoked ${target.recordId}, which this pull request relied on. Reason: ${revocation.revocation.reason}`,
+    ]);
+    if (!posted.ok) {
+      io.out(`Relay could not block pull request ${pr}: ${posted.reason}.`);
+      failures++;
+      continue;
+    }
+    const record: CheckResultRecord = {
+      ...recordBase(who.actor),
+      recordType: 'check-result',
+      binds: { tree, files: {} },
+      outcome: 'fail',
+      refs: [revocation.recordId],
+      checkResult: {
+        check: 'gate-check',
+        pullRequest: pr,
+        runId,
+        runUrl,
+        bundleManifestSha256: null,
+      },
+    };
+    const landed = writeRecord(io.cwd, record, `relay-pr-${pr}`, { remote: io.remote });
+    io.out(
+      `Relay: posted a failing gate-check on pull request ${pr} at ${short(pull.headSha)} for revocation ${revocation.recordId}; recorded as ${landed.path}.`,
+    );
   }
   return failures === 0 ? 0 : 1;
 }

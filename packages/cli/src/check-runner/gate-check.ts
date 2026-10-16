@@ -1,6 +1,5 @@
 import { active, isLock, short, type CommandIO } from '../commands/common.js';
-import { fetchTrunk, filesAt, hashesAt, treeOf } from '../git-tree.js';
-import { effectiveLock } from '../lock-state.js';
+import { fetchTrunk, treeOf } from '../git-tree.js';
 import { gitText } from '../records/git.js';
 import { boundStoryFile, gate3Approval, outsideScope, parseStory } from '../story.js';
 import type { ApprovalRecord, CheckResultRecord, FactoryRecord } from '../records/format.js';
@@ -84,9 +83,6 @@ function evaluate(io: CommandIO, set: RecordSet, pr: number, head: string, tree:
     const scope = scopeCheck(io, set, approval.record.approval.story as string, head);
     lines.push(...scope.lines);
     inScope = scope.pass;
-    const chain = chainCheck(io, set);
-    lines.push(...chain.lines);
-    inScope = inScope && chain.pass;
   }
   return {
     pass:
@@ -142,44 +138,6 @@ function scopeCheck(io: CommandIO, set: RecordSet, story: string, head: string):
         : `${p} is outside ${story}'s approved file scope (${lists.scope.join(', ')}).`,
     ),
   };
-}
-
-/**
- * SPIKE (brief C, part A): the records the gate-3 approval rests on must still hold: each one
- * unrevoked, the lock still the effective lock, and every gate-2 bound file on main unchanged.
- */
-function chainCheck(io: CommandIO, set: RecordSet): Verdict {
-  const gate3 = gate3Approval(set);
-  if (gate3 === undefined) return { pass: true, lines: [] }; // scopeCheck already says so
-  const g3 = gate3.record;
-  const revocations = set.records.map((s) => s.record).filter((r) => r.recordType === 'revocation');
-  const effective = effectiveLock(set);
-  const files = filesAt(io.cwd, fetchTrunk(io.cwd, io.remote));
-  const problems: string[] = [];
-  let g2 = 0;
-  for (const ref of g3.refs) {
-    const found = set.records.find((s) => s.record.recordId === ref)?.record;
-    const revoked = revocations.find((r) => r.recordType === 'revocation' && r.revocation.revokes === ref);
-    if (found?.recordType === 'approval' && found.approval.kind === 'amendment') continue; // the lock rule judges frozen tests per pull request
-    if (found === undefined) {
-      problems.push(`gate-3 approval ${g3.recordId} rests on ${ref}, which is not a valid record.`);
-    } else if (revoked !== undefined && revoked.recordType === 'revocation') {
-      const what = found.recordType === 'approval' ? (found.approval.kind === 'gate' ? `gate-${found.approval.gate} approval` : 'amendment') : found.recordType;
-      problems.push(`gate-3 approval ${g3.recordId} rests on the ${what} ${ref}, which was revoked by ${revoked.recordId} (reason: ${revoked.revocation.reason}).`);
-    } else if (found.recordType === 'lock' && effective?.lock.record.recordId !== ref) {
-      problems.push(`gate-3 approval ${g3.recordId} rests on lock ${ref}, which lock ${effective?.lock.record.recordId} has superseded.`);
-    } else if (found.recordType === 'approval' && found.approval.kind === 'gate' && found.approval.gate === 2) {
-      g2++;
-      const paths = Object.keys(found.binds.files);
-      const now = hashesAt(io.cwd, files, paths.filter((p) => files.has(p)));
-      const drifted = paths.filter((p) => now[p] !== found.binds.files[p]);
-      if (drifted.length > 0) problems.push(`gate-3 approval ${g3.recordId} rests on gate-2 approval ${ref}, but ${drifted.join(', ')} on main no longer matches what gate 2 bound.`);
-    }
-  }
-  if (g2 === 0) problems.push(`gate-3 approval ${g3.recordId} refers to no gate-2 approval, so its authority chain is incomplete.`);
-  return problems.length > 0
-    ? { pass: false, lines: problems }
-    : { pass: true, lines: [`Gate-3 approval ${g3.recordId}'s chain holds: its gate-2 approval is unrevoked and its files are unchanged on main, and its lock is still the lock in force.`] };
 }
 
 /**
