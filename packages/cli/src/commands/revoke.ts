@@ -1,7 +1,8 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
 import { fetchPullRequest, treeOf } from '../git-tree.js';
-import { gh, pullRequestState } from '../github.js';
+import { gh, openPullRequests, pullRequestState } from '../github.js';
+import { relyingPulls, wideReliance } from '../spike-reliance.js';
 import { effectiveLock } from '../lock-state.js';
 import { resolveActor } from '../records/actor.js';
 import {
@@ -44,7 +45,7 @@ function describe(target: RevocationTarget): string {
     if (a.kind === 'gate') return `the gate-${a.gate} approval ${r.recordId}`;
     if (a.kind === 'story')
       return `the ${a.story} approval ${r.recordId} for pull request ${a.pullRequest}`;
-    return `the ${a.kind} approval ${r.recordId} for pull request ${a.pullRequest}`;
+    return `the ${a.kind} approval ${r.recordId} ${a.pullRequest === null ? 'with no pull request' : `for pull request ${a.pullRequest}`}`;
   }
   if (r.recordType === 'check-result') {
     return `the ${r.checkResult.check} result ${r.recordId} for pull request ${r.checkResult.pullRequest}`;
@@ -82,6 +83,9 @@ function effect(target: RevocationTarget, unlocked: string[]): string {
       return 'Gate 2 is open again. The lock stays in force until a new gate-2 approval and lock.';
     }
     if (a.kind === 'gate') return `Gate ${a.gate} is open again.`;
+    if (a.kind === 'amendment' && a.pullRequest === null) {
+      return `The frozen-test inventory no longer counts: ${Object.keys(r.binds.files).join(', ')} stop being locked at their frozen hashes, so any pull request carrying one of them fails gate-check.`;
+    }
     if (a.kind === 'amendment') {
       return `The amendment for pull request ${a.pullRequest} no longer counts; gate-check and lock-guard fail that change. If it has already merged, every pull request that leaves those paths alone fails until a pull request restores them to what is locked now, or an amendment approves what main holds.`;
     }
@@ -111,6 +115,19 @@ function enforcement(
     };
   }
   const pr = pullRequestOf(target.stored.record);
+  if (pr === null && wideReliance(target.stored.record) !== null) {
+    // Spike: the record names no pull request, so ask which open ones rely on it.
+    const open = openPullRequests(io.cwd, io.ctx);
+    if ('reason' in open) return { done: false, message: `Pending: pod-factory cannot list the open pull requests (${open.reason}).` };
+    const relying = relyingPulls(io, target.stored.record, open);
+    if (relying.length === 0) return { done: true, message: 'No open pull request relies on this record, so there is nothing for CI to block.' };
+    const blocked = relying.filter((r) => relayRecord(set, revocation, r.pull.number, r.tree) !== undefined);
+    const waiting = relying.filter((r) => !blocked.includes(r));
+    const names = (rs: typeof relying) => rs.map((r) => `${r.pull.number} (${r.why})`).join('; ');
+    return waiting.length === 0
+      ? { done: true, message: `Enforced: CI posted a failing gate-check on pull request${blocked.length === 1 ? '' : 's'} ${names(blocked)}.` }
+      : { done: false, message: `Pending: CI has not yet blocked pull request${waiting.length === 1 ? '' : 's'} ${names(waiting)}${blocked.length > 0 ? `; already blocked: ${names(blocked)}` : ''}. Run the same revoke command again to check.` };
+  }
   if (pr === null) {
     return {
       done: true,
