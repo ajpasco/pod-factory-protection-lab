@@ -1,1 +1,1 @@
-export const ONE = 111;
+export const ONE = 1111;
