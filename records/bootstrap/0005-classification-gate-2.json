@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "bootstrap-0",
+  "recordType": "classification",
+  "gate": 2,
+  "project": "protection-lab",
+  "factoryVersion": "bootstrap (decision 23)",
+  "hashAlgorithm": "sha256 over LF-normalized UTF-8",
+  "createdAt": "2026-10-16T18:52:08Z",
+  "actor": {
+    "name": "Lab Approver",
+    "email": "lab-approver@example.test",
+    "kind": "human"
+  },
+  "command": "npm exec --workspace packages/cli -- vitest run --config vitest.config.ts",
+  "binds": {
+    ".factory/work/classification/gate-2.json": {
+      "sha256": "dea1a7c51cf1ec06af320fba109d73af5b15960671c89ec4683cdd976aebdab1"
+    }
+  },
+  "counts": {
+    "RB": 0,
+    "NB": 0
+  },
+  "outcome": "approved"
+}
