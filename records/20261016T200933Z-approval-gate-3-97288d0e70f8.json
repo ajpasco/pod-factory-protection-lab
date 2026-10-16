@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "recordType": "approval",
+  "recordId": "97288d0e70f8",
+  "factoryVersion": "0.0.0-m0",
+  "hashAlgorithm": "sha256-lf",
+  "createdAt": "2026-10-16T20:09:33Z",
+  "actor": {
+    "name": "Lab Approver",
+    "email": "lab-approver@example.test",
+    "kind": "human"
+  },
+  "binds": {
+    "tree": "3a1352b62cbf48f159ec0f0a4963a48e27cb23da",
+    "files": {
+      ".factory/work/plan/build-plan.md": "f4d7eb099707ad5d249ea7617b96ac77030401aa072cec93512e4243591cbd1d",
+      ".factory/work/story-91/story.md": "c3050926491023a281c83ba1dffba25e46f17d6712f8849024e63903e456f7e0",
+      ".factory/work/story-92/story.md": "ad4d698c07582e685b24730f94a9bef892d4d340f08816aa44417d8670966e5b"
+    }
+  },
+  "outcome": "approved",
+  "refs": [
+    "9943d13638e7",
+    "0e9d43c1dd6f"
+  ],
+  "approval": {
+    "kind": "gate",
+    "gate": 3,
+    "story": null,
+    "pullRequest": null,
+    "shownHash": "03631b7363dd3b383f9a64f608959371e76333b3e1f0fe19f7b83a858ca65469",
+    "typedPrefix": "03631b73",
+    "statement": "Gate 3 (third approval, C, after B was revoked): the build plan and its 2 stories as they are on main at commit e748979d982642e3955e3958244f4385726b4a77."
+  }
+}
