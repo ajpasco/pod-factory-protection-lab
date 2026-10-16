@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "recordType": "revocation",
+  "recordId": "ad32306cade3",
+  "factoryVersion": "0.0.0-m0",
+  "hashAlgorithm": "sha256-lf",
+  "createdAt": "2026-10-16T20:10:29Z",
+  "actor": {
+    "name": "Lab Approver",
+    "email": "lab-approver@example.test",
+    "kind": "human"
+  },
+  "binds": {
+    "tree": null,
+    "files": {}
+  },
+  "outcome": "revoked",
+  "refs": [
+    "3b1c2c3ebf57"
+  ],
+  "revocation": {
+    "revokes": "3b1c2c3ebf57",
+    "reason": "R1: the story approval is withdrawn"
+  }
+}
