@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "recordType": "approval",
+  "recordId": "c73eb22b6dbe",
+  "factoryVersion": "0.0.0-m0",
+  "hashAlgorithm": "sha256-lf",
+  "createdAt": "2026-10-16T20:47:32Z",
+  "actor": {
+    "name": "Lab Approver",
+    "email": "lab-approver@example.test",
+    "kind": "human"
+  },
+  "binds": {
+    "tree": "9538d5d53ce9641a57f68cd7b5fc4c0ce7afa8c3",
+    "files": {}
+  },
+  "outcome": "approved",
+  "refs": [],
+  "approval": {
+    "kind": "story",
+    "gate": null,
+    "story": "story-91",
+    "pullRequest": 7,
+    "shownHash": "e3b09f39af5111669df95ba10f2c5814e3b4b12ae144a489e1580bd0d49d3f58",
+    "typedPrefix": "e3b09f39",
+    "statement": "Gate 4: story-91 as pull request 7 stands at commit f1c2391c4ce382cb1063ecd0d34b1f0c6fd0753a."
+  }
+}
