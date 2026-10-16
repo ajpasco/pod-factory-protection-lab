@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { currentContext, detectActorKind, type InvocationContext } from '../records/actor.js';
 import type { ApprovalRecord, FactoryRecord, LockRecord } from '../records/format.js';
 import { resumePendingRecords, type WriteOptions } from '../records/write.js';
+import { gh } from '../github.js';
 import type { KillPointHook } from '../records/killpoint.js';
 import type { RecordSet, StoredRecord } from '../records/store.js';
 
@@ -93,4 +94,20 @@ export const isLock = (r: FactoryRecord): r is LockRecord => r.recordType === 'l
 
 export function short(id: string): string {
   return id.slice(0, 12);
+}
+
+/** Starts records-validate on main, whose relay blocks the pull requests that relied on it. */
+export function dispatchRelay(io: CommandIO): void {
+  const dispatched = gh(io.cwd, io.ctx, [
+    'workflow',
+    'run',
+    'records-validate.yml',
+    '--ref',
+    'main',
+  ]);
+  io.out(
+    dispatched.ok
+      ? 'records-validate was started so CI blocks any open pull request that relied on it.'
+      : `records-validate could not be started (${dispatched.reason}); run the same revoke command again to retry. Its schedule also picks the revocation up.`,
+  );
 }

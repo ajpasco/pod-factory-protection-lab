@@ -1,6 +1,12 @@
 import { active } from './commands/common.js';
 import { globToRegExp } from './lock-policy.js';
-import type { ApprovalRecord, FactoryRecord, Stage, TransitionRecord } from './records/format.js';
+import type {
+  ApprovalRecord,
+  FactoryRecord,
+  RevocationRecord,
+  Stage,
+  TransitionRecord,
+} from './records/format.js';
 import { git, readBlobs } from './records/git.js';
 import { hashBytes } from './records/hash.js';
 import type { RecordSet, StoredRecord } from './records/store.js';
@@ -60,9 +66,36 @@ export function parseStory(text: string): StoryLists | { missing: string[] } {
 const isGate3 = (r: FactoryRecord): r is ApprovalRecord =>
   r.recordType === 'approval' && r.approval.kind === 'gate' && r.approval.gate === 3;
 
-/** The latest valid, unrevoked gate-3 approval. */
+/** The gate-3 authority as the records say it stands: the latest valid gate-3 record, and its revocation if it has one. */
+export interface Gate3Authority {
+  stored: StoredRecord<ApprovalRecord>;
+  revokedBy: RevocationRecord | null;
+}
+
+/**
+ * The latest valid gate-3 record, whether or not it has been revoked. The newest gate-3 record
+ * IS the authority: if it was revoked, gate 3 is open, and an older gate-3 record never takes
+ * its place. (Selecting only unrevoked records silently promoted the predecessor of a revoked
+ * approval: revoking the current authorization re-activated a superseded one.)
+ */
+export function latestGate3(set: RecordSet): Gate3Authority | undefined {
+  const stored = set.records
+    .filter((s): s is StoredRecord<ApprovalRecord> => isGate3(s.record))
+    .at(-1);
+  if (stored === undefined) return undefined;
+  const revocation = set.records
+    .map((s) => s.record)
+    .find(
+      (r): r is RevocationRecord =>
+        r.recordType === 'revocation' && r.revocation.revokes === stored.record.recordId,
+    );
+  return { stored, revokedBy: revocation ?? null };
+}
+
+/** The gate-3 approval in force: the latest gate-3 record, provided it is unrevoked; otherwise none, never an older one. */
 export function gate3Approval(set: RecordSet): StoredRecord<ApprovalRecord> | undefined {
-  return active(set, isGate3).at(-1);
+  const latest = latestGate3(set);
+  return latest !== undefined && latest.revokedBy === null ? latest.stored : undefined;
 }
 
 const isTransition = (r: FactoryRecord): r is TransitionRecord => r.recordType === 'transition';

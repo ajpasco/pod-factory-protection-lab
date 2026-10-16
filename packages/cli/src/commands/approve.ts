@@ -31,10 +31,13 @@ import {
 import { loadRecords } from '../records/store.js';
 import { writeRecord } from '../records/write.js';
 import { effectiveLock, isLockedBy } from '../lock-state.js';
+import { parseStory } from '../story.js';
 import {
   Refusal,
   active,
+  dispatchRelay,
   finishPendingWrites,
+  isGate2Approval,
   requireHuman,
   revokedIds,
   short,
@@ -139,6 +142,69 @@ function gate2(io: CommandIO, classification: string | undefined): Plan {
   };
 }
 
+/**
+ * SPIKE (brief C, part A): gate 3 binds a complete chain, or refuses. Returns the records it rests
+ * on, for the approval's refs: the gate-2 approval, the lock, and the amendments that freeze tests.
+ */
+function authorityChain(
+  io: CommandIO,
+  commit: string,
+  files: Map<string, string>,
+  stories: string[],
+): string[] {
+  const set = loadRecords(io.cwd, io.remote);
+  const g2 = active(set, isGate2Approval).at(-1);
+  if (g2 === undefined) {
+    throw new Refusal(
+      'Gate 3 cannot be approved: there is no active, unrevoked gate-2 approval. Nothing was written.',
+    );
+  }
+  const bound = Object.entries(g2.record.binds.files).map(([p]) => p);
+  const now = hashesAt(
+    io.cwd,
+    files,
+    bound.filter((p) => files.has(p)),
+  );
+  const drifted = bound.filter((p) => now[p] !== g2.record.binds.files[p]);
+  if (drifted.length > 0) {
+    throw new Refusal(
+      `Gate 3 cannot be approved: ${drifted.join(', ')} on main no longer ${drifted.length === 1 ? 'matches' : 'match'} gate-2 approval ${g2.record.recordId}, so the design gate 2 approved is not the design on main. Gate 2 is open again. Nothing was written.`,
+    );
+  }
+  const locked = effectiveLock(set);
+  if (locked === null) {
+    throw new Refusal(
+      'Gate 3 cannot be approved: there is no active, unrevoked lock. Nothing was written.',
+    );
+  }
+  const tree = treeOf(io.cwd, commit);
+  if (locked.lock.record.binds.tree !== tree) {
+    throw new Refusal(
+      `Gate 3 cannot be approved: lock ${locked.lock.record.recordId} binds tree ${short(locked.lock.record.binds.tree ?? '')}, but main is at tree ${short(tree)} (commit ${short(commit)}). Nothing was written.`,
+    );
+  }
+  const tests: string[] = [];
+  for (const story of stories) {
+    const lists = parseStory(contentAt(io.cwd, files, story).toString('utf8'));
+    if ('missing' in lists) {
+      throw new Refusal(
+        `Gate 3 cannot be approved: ${story} has no ${lists.missing.join(', ')} list. Nothing was written.`,
+      );
+    }
+    for (const t of lists.tests)
+      if ((locked.hashes.get(t) ?? null) === null) tests.push(`${t} (${story})`);
+  }
+  if (tests.length > 0) {
+    throw new Refusal(
+      `Gate 3 cannot be approved: the effective lock ${locked.lock.record.recordId} holds no hash for ${tests.join(', ')}, so the frozen-test inventory is incomplete. Nothing was written.`,
+    );
+  }
+  const inventory = locked.amendments
+    .filter((a) => a.record.approval.pullRequest === null)
+    .map((a) => a.record.recordId);
+  return [g2.record.recordId, locked.lock.record.recordId, ...inventory];
+}
+
 function gate3(io: CommandIO): Plan {
   const commit = fetchTrunk(io.cwd, io.remote);
   const files = filesAt(io.cwd, commit);
@@ -160,6 +226,7 @@ function gate3(io: CommandIO): Plan {
       `Gate 3 cannot be approved: the build plan names ${missing.join(', ')}, which main at ${short(commit)} does not have.`,
     );
   }
+  const refs = authorityChain(io, commit, files, stories);
   return {
     token: '3',
     subject: 'gate-3',
@@ -169,7 +236,7 @@ function gate3(io: CommandIO): Plan {
       tree: treeOf(io.cwd, commit),
       files: hashesAt(io.cwd, files, [BUILD_PLAN, ...stories]),
     },
-    refs: [],
+    refs,
     refetch: () => fetchTrunk(io.cwd, io.remote),
     commit,
     sourceName: TRUNK,
@@ -355,5 +422,7 @@ export async function approve(argv: string[], io: CommandIO): Promise<number> {
   io.out(
     `Approved. Record ${landed.path} is on the records branch (record ID ${record.recordId}).`,
   );
+  // A fresh approval can clear a block the relay posted, so start the relay as `revoke` does.
+  dispatchRelay(io);
   return 0;
 }
