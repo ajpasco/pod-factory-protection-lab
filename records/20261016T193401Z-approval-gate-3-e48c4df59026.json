@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "recordType": "approval",
+  "recordId": "e48c4df59026",
+  "factoryVersion": "0.0.0-m0",
+  "hashAlgorithm": "sha256-lf",
+  "createdAt": "2026-10-16T19:34:01Z",
+  "actor": {
+    "name": "Lab Approver",
+    "email": "lab-approver@example.test",
+    "kind": "human"
+  },
+  "binds": {
+    "tree": "80ecbaf436b650ee1434a205408065b9606f3eeb",
+    "files": {
+      ".factory/work/plan/build-plan.md": "f4d7eb099707ad5d249ea7617b96ac77030401aa072cec93512e4243591cbd1d",
+      ".factory/work/story-91/story.md": "c3050926491023a281c83ba1dffba25e46f17d6712f8849024e63903e456f7e0",
+      ".factory/work/story-92/story.md": "ad4d698c07582e685b24730f94a9bef892d4d340f08816aa44417d8670966e5b"
+    }
+  },
+  "outcome": "approved",
+  "refs": [
+    "9943d13638e7",
+    "64cffc54d2d0"
+  ],
+  "approval": {
+    "kind": "gate",
+    "gate": 3,
+    "story": null,
+    "pullRequest": null,
+    "shownHash": "7334cb2647058665a4559a0f2a69def6566db8c6bc366f27fc4ace1e2f30f31b",
+    "typedPrefix": "7334cb26",
+    "statement": "Gate 3 (second, later approval, B, superseding A): the build plan and its 2 stories as they are on main at commit c1c0577257743de00a2ddce64232f2f35a8d951e."
+  }
+}
