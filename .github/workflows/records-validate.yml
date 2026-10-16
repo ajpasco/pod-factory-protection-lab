@@ -10,7 +10,7 @@ name: records-validate
 # absence fails the run: deleting the branch would delete every revocation.
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 permissions: {}
 concurrency:

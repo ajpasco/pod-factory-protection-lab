@@ -1,0 +1,5 @@
+This is a rehearsal repository for pod-factory's enforcement layer: it holds no product code and no real data, and nothing in it is a release.
+
+It exists so that the branch-protection, required-check and Actions behaviour that pod-factory relies on can be observed on real GitHub infrastructure instead of assumed. Every record on its `pod-factory/records` branch is synthetic, planted with pod-factory's own writer functions. The lab therefore proves nothing about the human-identity ceremony (`requireHuman`): it shows what the checks and the protection do once a record exists, not who may write one.
+
+`packages/`, `.github/` and `docs/` are a verbatim copy of the pod-factory source at commit `6db310a` (milestone zero) and are the enforcing code under test. Lab-only additions are `README.md`, a temporary `*/5` schedule in `.github/workflows/records-validate.yml` (the real repository uses fifteen minutes), `lab/src/`, the lab stories under `.factory/work/`, and, late in the rehearsal, one clearly labelled spike commit.
