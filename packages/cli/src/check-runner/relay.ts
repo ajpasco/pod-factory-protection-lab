@@ -18,14 +18,72 @@ const relayResults = (set: RecordSet) =>
       s.record.recordType === 'check-result' && s.record.checkResult.check === 'gate-check',
   );
 
-/** What the relay posts for a verdict: the check run's conclusion and the recorded outcome. */
-export function relayConclusion(verdict: { pass: boolean }): {
-  conclusion: 'success' | 'failure';
-  outcome: 'pass' | 'fail';
-} {
-  return verdict.pass
-    ? { conclusion: 'success', outcome: 'pass' }
-    : { conclusion: 'failure', outcome: 'fail' };
+/** What the relay records for a verdict. */
+export function relayOutcome(verdict: { pass: boolean }): 'pass' | 'fail' {
+  return verdict.pass ? 'pass' : 'fail';
+}
+
+/**
+ * Re-runs the gate-check job of the NEWEST pr-checks run for `headSha`, through the API with the
+ * workflow's own token (`actions: write`). The job re-reads the records branch, so the check run
+ * it writes is the current evaluation, in the check suite GitHub evaluates for merging. A check
+ * run the relay posted itself lands in an older suite on a head with several, and is ignored.
+ */
+export function rerunGateCheck(
+  io: CommandIO,
+  headSha: string,
+): { ok: true; run: number; job: number } | { ok: false; reason: string; running?: boolean } {
+  const runs = gh(io.cwd, io.ctx, [
+    'api',
+    '--jq',
+    '.workflow_runs[] | select(.path == ".github/workflows/pr-checks.yml") | [.id, .status] | @tsv',
+    `repos/{owner}/{repo}/actions/runs?head_sha=${headSha}&per_page=100`,
+  ]);
+  if (!runs.ok) return { ok: false, reason: runs.reason };
+  const found = runs.stdout
+    .split('\n')
+    .filter((l) => l.trim() !== '')
+    .map((l) => l.split('\t'))
+    .map(([id = '', status = '']) => ({ id: Number(id), status }))
+    .filter((r) => Number.isInteger(r.id) && r.id > 0);
+  // The newest run is the one with the highest id, not the first the API happens to list.
+  const newest = found.reduce<{ id: number; status: string } | undefined>(
+    (best, r) => (best === undefined || r.id > best.id ? r : best),
+    undefined,
+  );
+  if (newest === undefined) {
+    return { ok: false, reason: `no pr-checks run exists for head ${short(headSha)}` };
+  }
+  if (newest.status !== 'completed') {
+    return {
+      ok: false,
+      running: true,
+      reason: `the newest pr-checks run ${newest.id} for head ${short(headSha)} is still ${newest.status}, and its gate-check will read the current records itself`,
+    };
+  }
+  const jobs = gh(io.cwd, io.ctx, [
+    'api',
+    '--jq',
+    '.jobs[] | select(.name == "gate-check") | .id',
+    `repos/{owner}/{repo}/actions/runs/${newest.id}/jobs?per_page=100`,
+  ]);
+  if (!jobs.ok) return { ok: false, reason: jobs.reason };
+  const job = Number(
+    jobs.stdout
+      .split('\n')
+      .filter((l) => l.trim() !== '')
+      .at(-1),
+  );
+  if (!Number.isInteger(job) || job <= 0) {
+    return { ok: false, reason: `run ${newest.id} has no gate-check job` };
+  }
+  const rerun = gh(io.cwd, io.ctx, [
+    'api',
+    '-X',
+    'POST',
+    `repos/{owner}/{repo}/actions/jobs/${job}/rerun`,
+  ]);
+  return rerun.ok ? { ok: true, run: newest.id, job } : { ok: false, reason: rerun.reason };
 }
 
 interface Affected {
@@ -40,11 +98,13 @@ interface Affected {
  * The revocation relay, run by records-validate in Actions (TECH-SPEC section 6). For every open
  * pull request that a valid revocation affects at its current head (it relied on the revoked
  * record), or that the relay blocked or cleared earlier, it evaluates gate-check, the same rule
- * the gate-check job applies, and posts the CURRENT conclusion as a gate-check check run: a
- * failure while the authority is revoked, a pass once a valid fresh approval makes the verdict
- * pass. That way the newest gate-check check run on the head is never a stale failure. It writes
- * a gate-check check result for each post, which is how `revoke` learns the block is in place,
- * and skips a head whose last recorded conclusion is already the current one. Returns the exit
+ * the gate-check job applies, and, when the verdict differs from what it last recorded, re-runs
+ * the gate-check JOB of the newest pr-checks run for that head. The authoritative job then writes
+ * the current conclusion (a failure while the authority is revoked, a pass once a valid fresh
+ * approval makes the verdict pass) into the check suite GitHub evaluates, however many suites
+ * the head has. The relay posts no check run of its own. It writes a gate-check check result for
+ * each re-run, which is how `revoke` learns the block is in place, and skips a head whose last
+ * recorded conclusion is already the current one. Returns the exit
  * code.
  */
 export function relay(io: CommandIO, set: RecordSet, runId: number, runUrl: string): number {
@@ -147,7 +207,7 @@ export function relay(io: CommandIO, set: RecordSet, runId: number, runUrl: stri
       failures++;
       continue;
     }
-    const { conclusion, outcome } = relayConclusion(verdict);
+    const outcome = relayOutcome(verdict);
     const last = earlier
       .filter((s) => s.record.checkResult.pullRequest === pr && s.record.binds.tree === tree)
       .at(-1);
@@ -157,39 +217,16 @@ export function relay(io: CommandIO, set: RecordSet, runId: number, runUrl: stri
       io.out(
         outcome === 'fail'
           ? `Relay: pull request ${pr} at ${short(headSha)} is already blocked${revocation === undefined ? '' : ` for revocation ${revocation.recordId}`}.`
-          : `Relay: pull request ${pr} at ${short(headSha)} is already cleared: its last posted gate-check is a pass and the verdict still passes.`,
+          : `Relay: pull request ${pr} at ${short(headSha)} is already cleared: its last recorded gate-check is a pass and the verdict still passes.`,
       );
       continue;
     }
-    const target =
-      revocation === undefined ? undefined : revocationTarget(set, revocation.revocation.revokes);
-    const summary =
-      outcome === 'fail' && revocation !== undefined && target?.kind === 'record'
-        ? `Revocation ${revocation.recordId} revoked ${target.stored.record.recordId}, which this pull request relied on (${why}). Reason: ${revocation.revocation.reason}`
-        : `The relay evaluated gate-check for this head against the records branch at ${short(set.head ?? '')}: it ${verdict.pass ? 'passes' : 'fails'}. ${verdict.lines.join(' ')}`;
-    const posted = gh(io.cwd, io.ctx, [
-      'api',
-      '-X',
-      'POST',
-      'repos/{owner}/{repo}/check-runs',
-      '-f',
-      'name=gate-check',
-      '-f',
-      `head_sha=${headSha}`,
-      '-f',
-      'status=completed',
-      '-f',
-      `conclusion=${conclusion}`,
-      '-f',
-      `output[title]=${verdict.pass ? 'gate-check passes (reconciled by the relay)' : revocation === undefined ? 'gate-check fails' : 'approval revoked'}`,
-      '-f',
-      `output[summary]=${summary}`,
-    ]);
-    if (!posted.ok) {
+    const rerun = rerunGateCheck(io, headSha);
+    if (!rerun.ok) {
       io.out(
-        `Relay could not ${verdict.pass ? 'clear' : 'block'} pull request ${pr}: ${posted.reason}.`,
+        `Relay could not ${verdict.pass ? 'clear' : 'block'} pull request ${pr} at ${short(headSha)}: ${rerun.reason}.`,
       );
-      failures++;
+      if (rerun.running !== true) failures++;
       continue;
     }
     const record: CheckResultRecord = {
@@ -208,9 +245,7 @@ export function relay(io: CommandIO, set: RecordSet, runId: number, runUrl: stri
     };
     const landed = writeRecord(io.cwd, record, `relay-pr-${pr}`, { remote: io.remote });
     io.out(
-      verdict.pass
-        ? `Relay: posted a passing gate-check on pull request ${pr} at ${short(headSha)} (${why}); recorded as ${landed.path}.`
-        : `Relay: posted a failing gate-check on pull request ${pr} at ${short(headSha)}${revocation === undefined ? '' : ` for revocation ${revocation.recordId}`} (${why}); recorded as ${landed.path}.`,
+      `Relay: re-ran the gate-check job (job ${rerun.job} of run ${rerun.run}, the newest pr-checks run for ${short(headSha)}) on pull request ${pr}; the verdict is ${verdict.pass ? 'a pass' : 'a failure'}${verdict.pass || revocation === undefined ? '' : `, for revocation ${revocation.recordId}`} (${why}); recorded as ${landed.path}.`,
     );
   }
   return failures === 0 ? 0 : 1;

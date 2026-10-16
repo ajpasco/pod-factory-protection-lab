@@ -19,11 +19,13 @@ concurrency:
 jobs:
   records-validate:
     runs-on: ubuntu-latest
-    # contents: write pushes the relay's records; checks: write posts the failing gate-check;
-    # pull-requests: read lists the open pull requests. The job runs main's code only.
+    # contents: write pushes the relay's records; actions: write lets the relay re-run the
+    # gate-check job of the newest pr-checks run on an affected head; pull-requests: read lists
+    # the open pull requests. The job runs main's code only.
     permissions:
       contents: write
       checks: write
+      actions: write
       pull-requests: read
     steps:
       - uses: actions/checkout@v4
