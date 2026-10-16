@@ -1,0 +1,11 @@
+# Local reference copy of stablyai/orca, not part of this project
+orca/
+# Personal Claude setup bundle
+claude-portable-*.zip
+# per-worktree Claude Code settings
+.claude/settings.local.json
+# build output and dependencies
+node_modules/
+dist/
+# test reports from the locked runner configuration (evidence goes into verify's bundle)
+.factory/work/reports/
