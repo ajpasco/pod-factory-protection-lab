@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "recordType": "revocation",
+  "recordId": "1ab1b969b8a4",
+  "factoryVersion": "0.0.0-m0",
+  "hashAlgorithm": "sha256-lf",
+  "createdAt": "2026-10-16T19:45:54Z",
+  "actor": {
+    "name": "Lab Approver",
+    "email": "lab-approver@example.test",
+    "kind": "human"
+  },
+  "binds": {
+    "tree": null,
+    "files": {}
+  },
+  "outcome": "revoked",
+  "refs": [
+    "e48c4df59026"
+  ],
+  "revocation": {
+    "revokes": "e48c4df59026",
+    "reason": "P11a: gate-3 approval B withdrawn; A is the older, still unrevoked approval"
+  }
+}
