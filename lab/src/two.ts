@@ -1,1 +1,1 @@
-export const TWO = 222;
+export const TWO = 2222;
